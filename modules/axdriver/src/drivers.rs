@@ -2,16 +2,14 @@
 
 #![allow(unused_imports, dead_code)]
 
-use crate::AxDeviceEnum;
 use axdriver_base::DeviceType;
-
-#[cfg(feature = "virtio")]
-use crate::virtio::{self, VirtIoDevMeta};
-
 #[cfg(feature = "bus-pci")]
 use axdriver_pci::{DeviceFunction, DeviceFunctionInfo, PciRoot};
 
 pub use super::dummy::*;
+use crate::AxDeviceEnum;
+#[cfg(feature = "virtio")]
+use crate::virtio::{self, VirtIoDevMeta};
 
 pub trait DriverProbe {
     fn probe_global() -> Option<AxDeviceEnum> {
@@ -66,13 +64,35 @@ register_vsock_driver!(
 cfg_if::cfg_if! {
     if #[cfg(block_dev = "ramdisk")] {
         pub struct RamDiskDriver;
-        register_block_driver!(RamDiskDriver, axdriver_block::ramdisk::RamDisk);
+        use axdriver_block::ramdisk_static::RamDisk;
+        use core::slice;
+        const PHYS_MEM_BASE: usize = 0x8000_0000;
+        const RAMDISK_SIZE: usize = 0x8fe0_0000 - 0x8900_0000;
+        const KERNEL_OFFSET: usize = 0xffffffc0_0000_0000;
+        const BLOCK_SIZE: usize = 512; // 或 4096，看你块设备定义
+
+        const RAMDISK_PA: usize = PHYS_MEM_BASE + 0x900_0000; // 0x8900_0000
+        const RAMDISK_VA: usize = RAMDISK_PA + KERNEL_OFFSET;
+
+        fn ramdisk_buf() -> &'static mut [u8] {
+            // 对齐检查（非常重要）
+            assert!(RAMDISK_VA & (BLOCK_SIZE - 1) == 0);
+            assert!(RAMDISK_SIZE % BLOCK_SIZE == 0);
+
+            unsafe {
+                slice::from_raw_parts_mut(
+                RAMDISK_VA as *mut u8,
+                RAMDISK_SIZE,
+                )
+            }
+        }
+        register_block_driver!(RamDiskDriver, axdriver_block::ramdisk_static::RamDisk);
 
         impl DriverProbe for RamDiskDriver {
             fn probe_global() -> Option<AxDeviceEnum> {
                 // TODO: format RAM disk
                 Some(AxDeviceEnum::from_block(
-                    axdriver_block::ramdisk::RamDisk::new(0x100_0000), // 16 MiB
+                    axdriver_block::ramdisk_static::RamDisk::new(ramdisk_buf()), 
                 ))
             }
         }
