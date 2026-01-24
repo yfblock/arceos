@@ -29,11 +29,11 @@ impl DmaAllocator {
     /// memory, it asks the global page allocator for more memory and adds it to the
     /// byte allocator.
     pub unsafe fn alloc_coherent(&mut self, layout: Layout) -> AllocResult<DMAInfo> {
-        if layout.size() >= PAGE_SIZE_4K {
+        // if layout.size() >= PAGE_SIZE_4K {
             self.alloc_coherent_pages(layout)
-        } else {
-            self.alloc_coherent_bytes(layout)
-        }
+        // } else {
+            // self.alloc_coherent_bytes(layout)
+        // }
     }
 
     fn alloc_coherent_bytes(&mut self, layout: Layout) -> AllocResult<DMAInfo> {
