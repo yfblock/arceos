@@ -107,7 +107,7 @@ impl DmaAllocator {
 
     /// Gives back the allocated region to the byte allocator.
     pub unsafe fn dealloc_coherent(&mut self, dma: DMAInfo, layout: Layout) {
-        if layout.size() >= PAGE_SIZE_4K {
+        // if layout.size() >= PAGE_SIZE_4K {
             let num_pages = layout_pages(&layout);
             let virt_raw = dma.cpu_addr.as_ptr() as usize;
             global_allocator().dealloc_pages(virt_raw, num_pages, UsageKind::Dma);
@@ -116,9 +116,9 @@ impl DmaAllocator {
                 num_pages,
                 MappingFlags::READ | MappingFlags::WRITE,
             );
-        } else {
-            self.alloc.dealloc(dma.cpu_addr, layout)
-        }
+        // } else {
+            // self.alloc.dealloc(dma.cpu_addr, layout)
+        // }
     }
 }
 
