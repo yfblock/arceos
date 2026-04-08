@@ -262,3 +262,27 @@ cfg_if::cfg_if! {
         }
     }
 }
+
+cfg_if::cfg_if! {
+    if #[cfg(block_dev = "cvsd")] {
+        use axhal::mem::phys_to_virt;
+        use axdriver_block::cvsd::CvsdDriver;
+        use super::mbr::MbrPartitionDev;
+
+        pub struct CvsdMmc;
+        register_block_driver!(CvsdMmc, MbrPartitionDev<CvsdDriver>);
+
+        impl DriverProbe for CvsdMmc {
+            fn probe_global() -> Option<AxDeviceEnum> {
+                //let root = axconfig::devices::ROOT_PARTITION_NAME.parse().unwrap();
+                info!("Probe CV SD Bootable Part @ {:#x}", axconfig::devices::CVSD_PADDR);
+
+                let sdmmc = CvsdDriver::new(
+                    phys_to_virt(axconfig::devices::CVSD_PADDR.into()).into(),
+                    phys_to_virt(axconfig::devices::SYSCON_PADDR.into()).into(),
+                    ).expect("CVSD init failed");
+                MbrPartitionDev::new(sdmmc).ok().map(AxDeviceEnum::from_block)
+            }
+        }
+    }
+}

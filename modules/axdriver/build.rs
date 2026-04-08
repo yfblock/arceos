@@ -1,5 +1,5 @@
 const NET_DEV_FEATURES: &[&str] = &["fxmac", "ixgbe", "virtio-net"];
-const BLOCK_DEV_FEATURES: &[&str] = &["ahci", "ramdisk", "sdmmc", "bcm2835-sdhci", "virtio-blk"];
+const BLOCK_DEV_FEATURES: &[&str] = &["ahci", "ramdisk", "sdmmc", "cvsd", "bcm2835-sdhci", "virtio-blk"];
 const DISPLAY_DEV_FEATURES: &[&str] = &["virtio-gpu"];
 const INPUT_DEV_FEATURES: &[&str] = &["virtio-input"];
 const VSOCK_DEV_FEATURES: &[&str] = &["virtio-socket"];
@@ -47,6 +47,7 @@ fn main() {
 
         let mut selected = false;
         for feat in feat_list {
+            println!("cargo::warning=Has feat{feat} : {:?}...", has_feature(feat));
             if has_feature(feat) {
                 enable_cfg(&format!("{dev_kind}_dev"), feat);
                 selected = true;

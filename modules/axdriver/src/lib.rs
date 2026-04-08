@@ -87,6 +87,9 @@ pub use dyn_drivers::setup;
 
 pub mod prelude;
 
+#[cfg(feature = "mbr")]
+pub mod mbr;
+
 #[allow(unused_imports)]
 use self::prelude::*;
 pub use self::structs::{AxDeviceContainer, AxDeviceEnum};
@@ -138,6 +141,9 @@ impl AllDevices {
         }
         #[cfg(not(feature = "dyn"))]
         {
+            #[cfg(block_dev = "cvsd")]
+            info!("Note: the cvsd driver is enabled, which uses the MBR partition driver. Make sure to provide a valid MBR-partitioned block device for it to work.");
+            info!("=== probing global devices...");
             for_each_drivers!(type Driver, {
                 if let Some(dev) = Driver::probe_global() {
                     info!(
