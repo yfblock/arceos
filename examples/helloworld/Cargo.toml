@@ -7,4 +7,8 @@ authors = ["Yuekai Jia <equation618@gmail.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axstd = { workspace = true, optional = true }
+axstd = { workspace = true, features = ["alloc"], optional = true }
+sg200x-bsp = "0.5.4"
+axplat = "0.4"
+axplat-riscv64-sg2002 = { workspace = true, features = ["smp"] }
+tock-registers = "0.9"
