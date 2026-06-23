@@ -114,11 +114,15 @@ checksum = "993a810118f8f37e9c4411c86f1c4c940a09a7ab34b7bf2d88d06f50c553fab7"
 name = "arceos-helloworld"
 version = "0.1.0"
 dependencies = [
+ "axhal",
  "axplat",
  "axplat-riscv64-sg2002",
  "axstd",
+ "cc",
  "sg200x-bsp",
  "tock-registers 0.9.0",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -2125,9 +2129,7 @@ dependencies = [
 
 [[package]]
 name = "sg200x-bsp"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "286c45286f82b7c44def11337f86aa34245f9400ed4d5f8bc901a0c3efdb4388"
+version = "0.6.0"
 dependencies = [
  "bit-struct",
  "log",
@@ -2724,3 +2726,18 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
+
+[[package]]
+name = "zune-core"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb8a0807f7c01457d0379ba880ba6322660448ddebc890ce29bb64da71fb40f9"
+
+[[package]]
+name = "zune-jpeg"
+version = "0.5.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
+dependencies = [
+ "zune-core",
+]

@@ -18,12 +18,20 @@ make MYPLAT=axplat-riscv64-sg2002
 
 - 在调试后需要关闭设备
 - 每次执行都需要是从关闭到打开的初始状态
+- 上板测试统一用 `./.cursor/skills/sg2002-run/sg2002-run <binary>`（详见 `.cursor/skills/sg2002-run/SKILL.md`）
 
 ## 如何开启或关闭设备
 
-### 上传文件
+### 上传并运行（推荐）
 
-将 examples/helloworld/helloworld_sg2002.bin 移动到 /var/lib/tftpboot/arceos.bin, 然后开启设备后设备会启动自动通过 tftp 下载 arceos.bin 文件。然后可以通过 `/dev/ttyUSB0` 查看输出的信息。
+```shell
+make MYPLAT=axplat-riscv64-sg2002
+./.cursor/skills/sg2002-run/sg2002-run examples/helloworld/helloworld_sg2002.bin
+```
+
+### 手动步骤（仅调试脚本时使用）
+
+将 examples/helloworld/helloworld_sg2002.bin 复制到 /srv/tftp/arceos.bin，上电后 TFTP 自动下载，串口 `/dev/ttyUSB0` @ 115200 查看输出。
 
 ### 开启设备
 

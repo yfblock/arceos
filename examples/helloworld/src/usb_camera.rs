@@ -13,27 +13,26 @@
 
 use axplat::mem::{PhysAddr, VirtAddr, phys_to_virt, virt_to_phys};
 use axstd::println;
-use sg200x_bsp::gpio::{Direction, GPIO, GPIO1_BASE, GPIOPort};
-use sg200x_bsp::pinmux::{FMUX_USB_VBUS_DET, Pinmux};
+use sg200x_bsp::gpio::{Direction, GPIO, GPIO1_BASE};
+use sg200x_bsp::pinmux::{FMUX_BASE, FMUX_USB_VBUS_DET, IOBLK_BASE, IOBLK_GRTC_BASE, Pinmux};
 use sg200x_bsp::usb::{
     class::uvc,
     error::UsbError,
-    host::{self, UvcEnumerated, dwc2, dwc2::ep0 as dwc2_ep0},
-    log, platform,
+    host::{self, UvcEnumerated, dwc2},
 };
-use tock_registers::interfaces::Writeable;
+use tock_registers::interfaces::{Readable, Writeable};
 
 // =========================================================================
 //  SG2002 平台常量
 // =========================================================================
 
 const USB_DWC2_PADDR: usize = 0x0434_0000;
+const USB2_PHY_PADDR: usize = 0x0300_6000;
 const CLKGEN_PADDR: usize = 0x0300_2000;
 const TOP_PADDR: usize = 0x0300_0000;
 const IOBLK_G1_PADDR: usize = 0x0300_1800;
 const IOBLK_G1_USB_VBUS_DET_OFF: usize = 0x020;
 
-const VBUS_GPIO_PORT: GPIOPort = GPIOPort::GPIO1;
 const VBUS_GPIO_PIN: u8 = 6;
 const VBUS_GPIO_ACTIVE_HIGH: bool = true;
 
@@ -43,10 +42,6 @@ const VBUS_GPIO_ACTIVE_HIGH: bool = true;
 
 fn ep0_dma_virt_to_phys(p: *const u8) -> u32 {
     virt_to_phys(VirtAddr::from(p as usize)).as_usize() as u32
-}
-
-fn usb_log_line(s: &str) {
-    println!("{s}");
 }
 
 #[inline]
@@ -93,8 +88,14 @@ unsafe fn cvitek_usb_top_host_bringup() {
 }
 
 fn pinmux_usb_vbus_det_gpio_output_prep() {
-    let pinmux = Pinmux::new();
-    pinmux.fmux().usb_vbus_det.write(FMUX_USB_VBUS_DET::FSEL::XGPIOB_6);
+    let fmux_va = phys_to_virt(PhysAddr::from_usize(FMUX_BASE)).as_usize();
+    let ioblk_va = phys_to_virt(PhysAddr::from_usize(IOBLK_BASE)).as_usize();
+    let ioblk_grtc_va = phys_to_virt(PhysAddr::from_usize(IOBLK_GRTC_BASE)).as_usize();
+    let pinmux = unsafe { Pinmux::new(fmux_va, ioblk_va, ioblk_grtc_va) };
+    pinmux
+        .fmux()
+        .usb_vbus_det
+        .write(FMUX_USB_VBUS_DET::FSEL::XGPIOB_6);
     let iob = phys_to_virt(PhysAddr::from_usize(IOBLK_G1_PADDR)).as_usize();
     let r = (iob + IOBLK_G1_USB_VBUS_DET_OFF) as *mut u32;
     unsafe {
@@ -105,9 +106,9 @@ fn pinmux_usb_vbus_det_gpio_output_prep() {
 
 fn enable_usb_vbus_gpio() {
     let gpio_va = phys_to_virt(PhysAddr::from_usize(GPIO1_BASE)).as_usize();
-    let gpio = unsafe { GPIO::from_base_address(gpio_va, VBUS_GPIO_PORT) };
-    gpio.set_direction(VBUS_GPIO_PIN, Direction::Output);
-    gpio.set(VBUS_GPIO_PIN, VBUS_GPIO_ACTIVE_HIGH);
+    let gpio = unsafe { GPIO::new(gpio_va) };
+    gpio.pin(VBUS_GPIO_PIN).set_direction(Direction::Output);
+    gpio.pin(VBUS_GPIO_PIN).set(VBUS_GPIO_ACTIVE_HIGH);
 }
 
 // =========================================================================
@@ -129,10 +130,11 @@ pub fn init() -> Result<(UvcEnumerated, uvc::UvcStreamSelection), &'static str> 
     spin_udelay_approx(2_000_000);
 
     let vbase = phys_to_virt(PhysAddr::from_usize(USB_DWC2_PADDR)).as_usize();
-    platform::set_dwc2_base_virt(vbase);
-    platform::set_usb_dma_to_phys_fn(Some(ep0_dma_virt_to_phys));
-    log::set_usb_log_fn(usb_log_line);
-    dwc2::ep0::debug_log_ep0_dma_info();
+    sg200x_bsp::usb::set_dwc2_base_virt(vbase);
+    sg200x_bsp::usb::set_usb_dma_to_phys_fn(Some(ep0_dma_virt_to_phys));
+
+    let phy_vbase = phys_to_virt(PhysAddr::from_usize(USB2_PHY_PADDR)).as_usize();
+    sg200x_bsp::usb::set_cv182x_phy_base_virt(phy_vbase);
 
     unsafe {
         dwc2::dwc2_probe().map_err(|e| {
@@ -141,24 +143,41 @@ pub fn init() -> Result<(UvcEnumerated, uvc::UvcStreamSelection), &'static str> 
         })?;
     }
 
+    // 检查 USB 速度
+    let regs = sg200x_bsp::usb::dwc2_regs();
+    let hprt0 = regs.hprt0.get();
+    let spd = (hprt0 >> 17) & 0x3;
+    let speed_str = match spd {
+        0 => "High-Speed (HS)",
+        1 => "Full-Speed (FS)",
+        2 => "Low-Speed (LS)",
+        _ => "Unknown",
+    };
+    println!(
+        "USB: HPRT0={:#010x}, SPD={}, speed={}",
+        hprt0, spd, speed_str
+    );
+
     // --- 拓扑扫描（含重试）---
     let mut last_err = None;
-    let extras = (0..4).find_map(|attempt| {
-        if attempt > 0 {
-            spin_udelay_approx(1_500_000 * attempt as u32);
-        }
-        match host::enumerate_topology_only() {
-            Ok(ex) => Some(ex),
-            Err(e) => {
-                println!("USB: 枚举失败 #{}: {:?}", attempt + 1, e);
-                last_err = Some(e);
-                None
+    let extras = (0..4)
+        .find_map(|attempt| {
+            if attempt > 0 {
+                spin_udelay_approx(1_500_000 * attempt as u32);
             }
-        }
-    }).ok_or_else(|| {
-        println!("USB: 枚举重试全部失败: {:?}", last_err);
-        "USB 拓扑扫描失败"
-    })?;
+            match host::enumerate_topology_only() {
+                Ok(ex) => Some(ex),
+                Err(e) => {
+                    println!("USB: 枚举失败 #{}: {:?}", attempt + 1, e);
+                    last_err = Some(e);
+                    None
+                }
+            }
+        })
+        .ok_or_else(|| {
+            println!("USB: 枚举重试全部失败: {:?}", last_err);
+            "USB 拓扑扫描失败"
+        })?;
 
     let cam = extras.uvc.ok_or("未检测到 UVC 摄像头")?;
     println!(
@@ -174,36 +193,61 @@ pub fn init() -> Result<(UvcEnumerated, uvc::UvcStreamSelection), &'static str> 
         "读取配置描述符失败"
     })?;
     let cfg_total = u16::from_le_bytes([cfg_buf[2], cfg_buf[3]]) as usize;
+
+    // 优先选择 720x480；若设备不暴露该模式，解析器会回退到不超过该像素数的最大模式。
+    uvc::set_preferred_frame_size(720, 480);
+    uvc::set_preferred_max_pixels(720 * 480);
+    // 30 FPS often gives low-cost webcams more exposure/ISP headroom than their 60 FPS mode.
+    uvc::set_preferred_frame_interval(333_333);
+
     let mut sel = uvc::parse_uvc_video_stream(&cfg_buf[..cfg_total.min(cfg_buf.len())], cfg_total)
         .map_err(|e| match e {
-            UsbError::NotImplemented => "未找到 VS Bulk/Isoch 视频端点",
+            UsbError::NotImplemented => "未找到 VS Isoch 视频端点",
             _ => {
                 println!("UVC: parse_uvc_video_stream err={:?}", e);
                 "解析 UVC 流参数失败"
             }
         })?;
 
-    if let Some(entities) = uvc::parse_uvc_control_entities(
-        &cfg_buf[..cfg_total.min(cfg_buf.len())],
-        cfg_total,
-    ) {
+    let control_entities =
+        uvc::parse_uvc_control_entities(&cfg_buf[..cfg_total.min(cfg_buf.len())], cfg_total);
+
+    if let Some(entities) = &control_entities {
         let tune = uvc::UvcImageTuning {
-            brightness: Some(96),
+            brightness: Some(0),
+            contrast: Some(32),
+            saturation: Some(57),
+            gamma: Some(100),
+            gain: Some(0),
+            sharpness: Some(5),
+            backlight: Some(0),
+            power_line_freq: Some(1),
             ..uvc::UvcImageTuning::default()
         };
-        let _ = uvc::uvc_init_camera_controls(dev, ep0, &entities, &tune);
+        let _ = uvc::uvc_init_camera_controls(dev, ep0, entities, &tune);
     }
 
     uvc::uvc_start_video_stream(dev, ep0, &mut sel).map_err(|e| {
         println!("UVC: uvc_start_video_stream err={:?}", e);
         "UVC PROBE/COMMIT 或 SET_INTERFACE 失败"
     })?;
+    let interval_fps_x100 = if sel.frame_interval > 0 {
+        1_000_000_000u32 / sel.frame_interval
+    } else {
+        0
+    };
     println!(
-        "UVC: 视频流就绪 {}x{} payload={} frame_size={}",
-        sel.frame_w, sel.frame_h, sel.negotiated_payload_size, sel.negotiated_frame_size
+        "UVC: 视频流就绪 {}x{} interval={} ({}.{:02} fps) payload={} frame_size={}",
+        sel.frame_w,
+        sel.frame_h,
+        sel.frame_interval,
+        interval_fps_x100 / 100,
+        interval_fps_x100 % 100,
+        sel.negotiated_payload_size,
+        sel.negotiated_frame_size
     );
 
-    let _ = uvc::uvc_capture_one_frame(dev, ep0, &sel);
+    let _ = uvc::uvc_capture_one_frame(dev, &sel);
 
     Ok((cam, sel))
 }
@@ -220,20 +264,18 @@ pub fn capture_frame(
     sel: &uvc::UvcStreamSelection,
 ) -> Result<&'static [u8], &'static str> {
     let dev = u32::from(cam.addr);
-    let ep0 = cam.ep0_mps;
 
     const MAX_TRIES: u32 = 8;
     const MIN_VALID_BYTES: usize = 4096;
     let mut last_n: usize = 0;
     let mut last_msg: Option<&'static str> = None;
     for attempt in 0..MAX_TRIES {
-        let n = uvc::uvc_capture_one_frame(dev, ep0, sel).map_err(|e| {
+        let n = uvc::uvc_capture_one_frame(dev, sel).map_err(|e| {
             println!("UVC: capture err={:?}", e);
             "抓帧失败"
         })?;
         last_n = n;
-        let s = dwc2_ep0::dma_rx_slice(uvc::UVC_ASSEMBLED_JPEG_DMA_OFF, n)
-            .ok_or("DMA 切片越界")?;
+        let s = dwc2::dma_rx_slice(uvc::UVC_ASSEMBLED_JPEG_DMA_OFF, n).ok_or("DMA 切片越界")?;
         let starts_jpeg = n >= 2 && s[0] == 0xff && s[1] == 0xd8;
         let ends_jpeg = n >= 2 && s[n - 2] == 0xff && s[n - 1] == 0xd9;
         if starts_jpeg && ends_jpeg && n >= MIN_VALID_BYTES {
@@ -248,15 +290,20 @@ pub fn capture_frame(
         });
         println!(
             "UVC: 帧无效 (try #{}/{}, size={}, {}); 重置 FID",
-            attempt + 1, MAX_TRIES, n, last_msg.unwrap_or("?")
+            attempt + 1,
+            MAX_TRIES,
+            n,
+            last_msg.unwrap_or("?")
         );
         uvc::reset_frame_continuity();
     }
     println!(
         "UVC: 重试 {} 次仍未拿到完整 JPEG，size={} {}",
-        MAX_TRIES, last_n, last_msg.unwrap_or("?")
+        MAX_TRIES,
+        last_n,
+        last_msg.unwrap_or("?")
     );
-    dwc2_ep0::dma_rx_slice(uvc::UVC_ASSEMBLED_JPEG_DMA_OFF, last_n).ok_or("DMA 切片越界")
+    dwc2::dma_rx_slice(uvc::UVC_ASSEMBLED_JPEG_DMA_OFF, last_n).ok_or("DMA 切片越界")
 }
 
 // =========================================================================
@@ -277,7 +324,10 @@ pub fn run() -> ! {
             }
         }
     };
-    println!("UVC: 进入持续抓帧循环 (USB addr={} {}x{})", cam.addr, sel.frame_w, sel.frame_h);
+    println!(
+        "UVC: 进入持续抓帧循环 (USB addr={} {}x{})",
+        cam.addr, sel.frame_w, sel.frame_h
+    );
     loop {
         match capture_frame(&cam, &sel) {
             Ok(jpeg) => println!("UVC: 抓帧成功 size={} bytes", jpeg.len()),

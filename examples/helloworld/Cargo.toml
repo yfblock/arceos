@@ -6,9 +6,19 @@ authors = ["Yuekai Jia <equation618@gmail.com>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[build-dependencies]
+cc = "1.2"
+
+[features]
+default = []
+jpu-c = []
+
 [dependencies]
 axstd = { workspace = true, features = ["alloc"], optional = true }
-sg200x-bsp = "0.5.4"
+axhal = { workspace = true, features = ["irq"] }
+sg200x-bsp = "0.6.0"
 axplat = "0.4"
-axplat-riscv64-sg2002 = { workspace = true, features = ["smp"] }
+axplat-riscv64-sg2002 = { workspace = true, features = ["smp", "irq"] }
 tock-registers = "0.9"
+zune-jpeg = { version = "0.5.15", default-features = false }
+zune-core = { version = "0.5.1", default-features = false }

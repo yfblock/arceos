@@ -11,3 +11,28 @@ rusty-tags.vi
 /.project*
 /.axconfig.*
 /crates
+
+# 测试和调试生成的文件
+*.bmp
+*.yuv
+*.jpeg
+*.jpg
+*.b64
+decoded.*
+input.*
+test*.sh
+save_*.sh
+
+# 备份文件
+*.bak
+
+# 构建产物
+examples/helloworld/target/
+
+# 调试临时目录
+jpeg/
+sg200x-bsp/
+LicheeRV-Nano-Build/
+
+# 性能分析笔记
+bottleneck.md

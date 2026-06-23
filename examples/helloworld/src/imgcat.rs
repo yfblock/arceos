@@ -13,60 +13,24 @@
 
 use axplat::console::write_bytes;
 
-const ALPHABET: &[u8; 64] =
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+use crate::serial_export;
 
-/// 一次刷出多少 base64 字节到控制台（必须是 4 的倍数）。
-const FLUSH_BYTES: usize = 1024;
-
-/// 把任意字节流（通常是 JPEG/PNG）以 iTerm2 inline image 协议写入控制台。
+/// 把任意字节流（JPEG/PNG/BMP 等）以 iTerm2 inline image 协议写入控制台。
 pub fn print_image(image: &[u8]) {
-    write_bytes(b"\x1b]1337;File=inline=1:");
-    base64_stream(image);
+    print_image_named("image.bin", image);
+}
+
+/// 指定文件名 hint，便于终端识别 BMP/JPEG 等格式。
+pub fn print_image_named(name: &str, image: &[u8]) {
+    write_bytes(b"\x1b]1337;File=inline=1;name=");
+    write_bytes(name.as_bytes());
+    write_bytes(b":");
+    serial_export::write_base64(image);
     write_bytes(b"\x07\n");
 }
 
 /// 仅写出 base64 编码后的内容（不带协议头/尾），方便复用。
+#[allow(dead_code)]
 fn base64_stream(input: &[u8]) {
-    let mut buf = [0u8; FLUSH_BYTES];
-    let mut pos = 0usize;
-
-    let mut chunks = input.chunks_exact(3);
-    for c in chunks.by_ref() {
-        let n = ((c[0] as u32) << 16) | ((c[1] as u32) << 8) | (c[2] as u32);
-        buf[pos] = ALPHABET[((n >> 18) & 0x3f) as usize];
-        buf[pos + 1] = ALPHABET[((n >> 12) & 0x3f) as usize];
-        buf[pos + 2] = ALPHABET[((n >> 6) & 0x3f) as usize];
-        buf[pos + 3] = ALPHABET[(n & 0x3f) as usize];
-        pos += 4;
-        if pos == FLUSH_BYTES {
-            write_bytes(&buf);
-            pos = 0;
-        }
-    }
-
-    let rem = chunks.remainder();
-    match rem.len() {
-        1 => {
-            let n = (rem[0] as u32) << 16;
-            buf[pos] = ALPHABET[((n >> 18) & 0x3f) as usize];
-            buf[pos + 1] = ALPHABET[((n >> 12) & 0x3f) as usize];
-            buf[pos + 2] = b'=';
-            buf[pos + 3] = b'=';
-            pos += 4;
-        }
-        2 => {
-            let n = ((rem[0] as u32) << 16) | ((rem[1] as u32) << 8);
-            buf[pos] = ALPHABET[((n >> 18) & 0x3f) as usize];
-            buf[pos + 1] = ALPHABET[((n >> 12) & 0x3f) as usize];
-            buf[pos + 2] = ALPHABET[((n >> 6) & 0x3f) as usize];
-            buf[pos + 3] = b'=';
-            pos += 4;
-        }
-        _ => {}
-    }
-
-    if pos > 0 {
-        write_bytes(&buf[..pos]);
-    }
+    serial_export::write_base64(input);
 }

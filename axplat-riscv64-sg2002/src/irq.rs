@@ -92,8 +92,7 @@ static PLIC: SpinNoIrq<Plic> = SpinNoIrq::new(unsafe {
 });
 
 fn this_context() -> usize {
-    // let hart_id = 0;
-    // hart_id * 2 + 1 // supervisor context
+    // Hart 0 S-mode = PLIC context 1
     1
 }
 
